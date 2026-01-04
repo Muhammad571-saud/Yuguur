@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Platform,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
@@ -12,6 +13,16 @@ import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { API_ENDPOINTS } from '@/src/constants/api';
+
+interface Territory {
+  id: string;
+  owner_id: string;
+  owner_name: string;
+  owner_phone: string;
+  owner_color: string;
+  polygon: Array<{ lat: number; lng: number }>;
+  area: number;
+}
 
 interface Run {
   id: string;
@@ -23,13 +34,16 @@ interface Run {
 }
 
 export default function MapScreen() {
+  const [territories, setTerritories] = useState<Territory[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [showTerritories, setShowTerritories] = useState(true);
+  const [showRoutes, setShowRoutes] = useState(true);
 
   useFocusEffect(
     useCallback(() => {
-      fetchRuns();
+      fetchData();
       getCurrentLocation();
     }, [])
   );
@@ -48,20 +62,28 @@ export default function MapScreen() {
       }
     } catch (error) {
       console.error('Error getting location:', error);
-      // Default to Tashkent, Uzbekistan
       setCurrentLocation({ lat: 41.2995, lng: 69.2401 });
     }
   };
 
-  const fetchRuns = async () => {
+  const fetchData = async () => {
     try {
-      const response = await fetch(API_ENDPOINTS.getAllRuns);
-      if (response.ok) {
-        const data = await response.json();
-        setRuns(data);
+      const [territoriesRes, runsRes] = await Promise.all([
+        fetch(API_ENDPOINTS.getAllTerritories),
+        fetch(API_ENDPOINTS.getAllRuns),
+      ]);
+      
+      if (territoriesRes.ok) {
+        const territoriesData = await territoriesRes.json();
+        setTerritories(territoriesData);
+      }
+      
+      if (runsRes.ok) {
+        const runsData = await runsRes.json();
+        setRuns(runsData);
       }
     } catch (error) {
-      console.error('Error fetching runs:', error);
+      console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
     }
@@ -69,50 +91,56 @@ export default function MapScreen() {
 
   const generateMapHTML = () => {
     const center = currentLocation || { lat: 41.2995, lng: 69.2401 };
-    
-    // Generate colors for different users
-    const userColors: { [key: string]: string } = {};
-    const colors = [
-      '#4a90d9', '#4ade80', '#f59e0b', '#ef4444', '#8b5cf6',
-      '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'
-    ];
-    
-    runs.forEach((run, index) => {
-      if (!userColors[run.user_id]) {
-        userColors[run.user_id] = colors[Object.keys(userColors).length % colors.length];
-      }
-    });
 
-    const polylines = runs.map((run) => {
+    // Generate territory polygons
+    const territoryPolygons = showTerritories ? territories.map((territory) => {
+      const coords = territory.polygon.map(c => `[${c.lat}, ${c.lng}]`).join(',');
+      return `
+        L.polygon([${coords}], {
+          color: '${territory.owner_color}',
+          weight: 3,
+          fillColor: '${territory.owner_color}',
+          fillOpacity: 0.3
+        }).addTo(map).bindPopup('<b>${territory.owner_name}</b><br>${territory.owner_phone}<br>Hudud: ${(territory.area / 1000000).toFixed(4)} km²');
+      `;
+    }).join('') : '';
+
+    // Generate run polylines
+    const runPolylines = showRoutes ? runs.map((run) => {
       const coords = run.coordinates.map(c => `[${c.lat}, ${c.lng}]`).join(',');
-      const color = userColors[run.user_id];
       return `
         L.polyline([${coords}], {
-          color: '${color}',
-          weight: 4,
-          opacity: 0.8
+          color: '#4a90d9',
+          weight: 2,
+          opacity: 0.6,
+          dashArray: '5, 5'
         }).addTo(map).bindPopup('<b>${run.user_name}</b><br>${run.user_phone}<br>${(run.distance / 1000).toFixed(2)} km');
       `;
-    }).join('');
+    }).join('') : '';
 
-    // Add markers for starting points
-    const markers = runs.map((run) => {
-      if (run.coordinates.length > 0) {
-        const start = run.coordinates[0];
-        const color = userColors[run.user_id];
+    // Add markers for territory centers
+    const territoryMarkers = showTerritories ? territories.map((territory) => {
+      if (territory.polygon.length > 0) {
+        // Calculate center of polygon
+        const latSum = territory.polygon.reduce((sum, p) => sum + p.lat, 0);
+        const lngSum = territory.polygon.reduce((sum, p) => sum + p.lng, 0);
+        const center = {
+          lat: latSum / territory.polygon.length,
+          lng: lngSum / territory.polygon.length,
+        };
         return `
-          L.circleMarker([${start.lat}, ${start.lng}], {
-            radius: 8,
-            fillColor: '${color}',
+          L.circleMarker([${center.lat}, ${center.lng}], {
+            radius: 6,
+            fillColor: '${territory.owner_color}',
             color: '#fff',
             weight: 2,
             opacity: 1,
-            fillOpacity: 0.8
-          }).addTo(map).bindPopup('<b>${run.user_name}</b><br>${run.user_phone}');
+            fillOpacity: 1
+          }).addTo(map).bindPopup('<b>${territory.owner_name}</b><br>${territory.owner_phone}');
         `;
       }
       return '';
-    }).join('');
+    }).join('') : '';
 
     return `
       <!DOCTYPE html>
@@ -138,7 +166,7 @@ export default function MapScreen() {
       <body>
         <div id="map"></div>
         <script>
-          var map = L.map('map').setView([${center.lat}, ${center.lng}], 13);
+          var map = L.map('map').setView([${center.lat}, ${center.lng}], 14);
           
           L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
@@ -147,16 +175,22 @@ export default function MapScreen() {
           
           // Current location marker
           L.circleMarker([${center.lat}, ${center.lng}], {
-            radius: 10,
+            radius: 12,
             fillColor: '#4a90d9',
             color: '#fff',
             weight: 3,
             opacity: 1,
             fillOpacity: 1
-          }).addTo(map).bindPopup('You are here');
+          }).addTo(map).bindPopup('<b>Siz bu yerdasiz</b>');
           
-          ${polylines}
-          ${markers}
+          // Territory polygons
+          ${territoryPolygons}
+          
+          // Run routes
+          ${runPolylines}
+          
+          // Territory markers
+          ${territoryMarkers}
         </script>
       </body>
       </html>
@@ -168,7 +202,7 @@ export default function MapScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#4a90d9" />
-          <Text style={styles.loadingText}>Loading map...</Text>
+          <Text style={styles.loadingText}>Xarita yuklanmoqda...</Text>
         </View>
       </SafeAreaView>
     );
@@ -178,8 +212,32 @@ export default function MapScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Ionicons name="map" size={24} color="#4a90d9" />
-        <Text style={styles.title}>Territory Map</Text>
-        <Text style={styles.runCount}>{runs.length} routes</Text>
+        <Text style={styles.title}>Hududlar xaritasi</Text>
+        <TouchableOpacity onPress={fetchData}>
+          <Ionicons name="refresh" size={24} color="#4a90d9" />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.filterBar}>
+        <TouchableOpacity
+          style={[styles.filterButton, showTerritories && styles.filterButtonActive]}
+          onPress={() => setShowTerritories(!showTerritories)}
+        >
+          <Ionicons name="flag" size={16} color={showTerritories ? '#fff' : '#8892b0'} />
+          <Text style={[styles.filterText, showTerritories && styles.filterTextActive]}>
+            Hududlar ({territories.length})
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.filterButton, showRoutes && styles.filterButtonActive]}
+          onPress={() => setShowRoutes(!showRoutes)}
+        >
+          <Ionicons name="walk" size={16} color={showRoutes ? '#fff' : '#8892b0'} />
+          <Text style={[styles.filterText, showRoutes && styles.filterTextActive]}>
+            Marshrutlar ({runs.length})
+          </Text>
+        </TouchableOpacity>
       </View>
       
       <View style={styles.mapContainer}>
@@ -187,14 +245,15 @@ export default function MapScreen() {
           <View style={styles.webFallback}>
             <Ionicons name="map" size={60} color="#4a90d9" />
             <Text style={styles.webFallbackText}>
-              Map view is best experienced on mobile devices
+              Xarita mobil qurilmalarda yaxshi ishlaydi
             </Text>
             <Text style={styles.webFallbackSubtext}>
-              {runs.length} running routes recorded
+              {territories.length} ta hudud, {runs.length} ta marshrut
             </Text>
           </View>
         ) : (
           <WebView
+            key={`${showTerritories}-${showRoutes}`}
             source={{ html: generateMapHTML() }}
             style={styles.map}
             scrollEnabled={true}
@@ -210,13 +269,13 @@ export default function MapScreen() {
         )}
       </View>
 
-      {runs.length === 0 && (
+      {territories.length === 0 && runs.length === 0 && (
         <View style={styles.emptyOverlay}>
           <View style={styles.emptyCard}>
             <Ionicons name="footsteps" size={40} color="#4a90d9" />
-            <Text style={styles.emptyText}>No routes yet</Text>
+            <Text style={styles.emptyText}>Hududlar yo'q</Text>
             <Text style={styles.emptySubtext}>
-              Start running to see territories on the map!
+              Yuguring va hududlarni egallang!
             </Text>
           </View>
         </View>
@@ -256,10 +315,33 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     flex: 1,
   },
-  runCount: {
-    fontSize: 14,
-    color: '#4a90d9',
-    fontWeight: '500',
+  filterBar: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: '#16213e',
+    borderBottomWidth: 1,
+    borderBottomColor: '#2d3a5c',
+  },
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: '#1a1a2e',
+    marginRight: 10,
+  },
+  filterButtonActive: {
+    backgroundColor: '#4a90d9',
+  },
+  filterText: {
+    color: '#8892b0',
+    fontSize: 12,
+    marginLeft: 6,
+  },
+  filterTextActive: {
+    color: '#fff',
   },
   mapContainer: {
     flex: 1,
@@ -297,7 +379,7 @@ const styles = StyleSheet.create({
   },
   emptyOverlay: {
     position: 'absolute',
-    top: 80,
+    top: 150,
     left: 20,
     right: 20,
   },
