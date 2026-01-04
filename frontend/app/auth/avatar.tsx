@@ -12,8 +12,8 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../src/context/AuthContext';
-import { API_ENDPOINTS } from '../../src/constants/api';
+import { useAuth } from '@/src/context/AuthContext';
+import { API_ENDPOINTS } from '@/src/constants/api';
 
 export default function AvatarScreen() {
   const router = useRouter();
