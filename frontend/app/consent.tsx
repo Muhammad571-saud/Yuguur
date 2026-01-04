@@ -22,7 +22,7 @@ export default function ConsentScreen() {
 
   const requestPermissions = async () => {
     try {
-      // On web, permissions work differently - just mark as granted for preview
+      // On web, just mark as granted immediately
       if (Platform.OS === 'web') {
         setPermissionsGranted(true);
         return;
@@ -31,40 +31,28 @@ export default function ConsentScreen() {
       // Request location permission on mobile
       const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
       
-      if (locationStatus !== 'granted') {
-        Alert.alert(
-          'Permission Required',
-          'Location permission is required for tracking your runs and territories.',
-          [{ text: 'OK' }]
-        );
-        return;
-      }
-
-      // Also request background location for better tracking
-      try {
-        const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-        if (bgStatus !== 'granted') {
-          Alert.alert(
-            'Background Location',
-            'Background location access will improve run tracking accuracy.',
-            [{ text: 'OK' }]
-          );
-        }
-      } catch (bgError) {
-        console.log('Background location not available:', bgError);
-      }
-
-      setPermissionsGranted(true);
-    } catch (error) {
-      console.error('Permission error:', error);
-      // On error, still allow to proceed on web
-      if (Platform.OS === 'web') {
+      if (locationStatus === 'granted') {
         setPermissionsGranted(true);
       } else {
-        Alert.alert('Error', 'Failed to request permissions. Please try again.');
+        Alert.alert(
+          'Ruxsat kerak',
+          'Yugurish va hududlarni kuzatish uchun joylashuv ruxsati kerak.',
+          [{ text: 'OK' }]
+        );
       }
+    } catch (error) {
+      console.error('Permission error:', error);
+      // On any error, allow to proceed (especially on web)
+      setPermissionsGranted(true);
     }
   };
+
+  // Auto-grant on web when component mounts
+  React.useEffect(() => {
+    if (Platform.OS === 'web') {
+      setPermissionsGranted(true);
+    }
+  }, []);
 
   const handleContinue = async () => {
     if (!permissionsGranted) {
