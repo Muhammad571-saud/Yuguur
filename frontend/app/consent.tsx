@@ -22,7 +22,13 @@ export default function ConsentScreen() {
 
   const requestPermissions = async () => {
     try {
-      // Request location permission
+      // On web, permissions work differently - just mark as granted for preview
+      if (Platform.OS === 'web') {
+        setPermissionsGranted(true);
+        return;
+      }
+
+      // Request location permission on mobile
       const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
       
       if (locationStatus !== 'granted') {
@@ -35,7 +41,7 @@ export default function ConsentScreen() {
       }
 
       // Also request background location for better tracking
-      if (Platform.OS !== 'web') {
+      try {
         const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
         if (bgStatus !== 'granted') {
           Alert.alert(
@@ -44,13 +50,19 @@ export default function ConsentScreen() {
             [{ text: 'OK' }]
           );
         }
+      } catch (bgError) {
+        console.log('Background location not available:', bgError);
       }
 
       setPermissionsGranted(true);
-      Alert.alert('Success', 'Permissions granted successfully!');
     } catch (error) {
       console.error('Permission error:', error);
-      Alert.alert('Error', 'Failed to request permissions. Please try again.');
+      // On error, still allow to proceed on web
+      if (Platform.OS === 'web') {
+        setPermissionsGranted(true);
+      } else {
+        Alert.alert('Error', 'Failed to request permissions. Please try again.');
+      }
     }
   };
 
