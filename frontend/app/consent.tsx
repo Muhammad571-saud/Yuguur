@@ -157,9 +157,9 @@ export default function ConsentScreen() {
             (!isChecked || !permissionsGranted) && styles.continueButtonDisabled,
           ]}
           onPress={handleContinue}
-          disabled={!isChecked || !permissionsGranted}
+          activeOpacity={0.7}
         >
-          <Text style={styles.continueButtonText}>Continue</Text>
+          <Text style={styles.continueButtonText}>Davom etish</Text>
           <Ionicons name="arrow-forward" size={20} color="#fff" />
         </TouchableOpacity>
       </ScrollView>
