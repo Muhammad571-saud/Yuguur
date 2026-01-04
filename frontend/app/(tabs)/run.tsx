@@ -330,45 +330,6 @@ export default function RunScreen() {
     return Math.abs(area / 2);
   };
 
-  const saveRun = async () => {
-    if (!user) return;
-    
-    setSaving(true);
-    try {
-      const response = await fetch(API_ENDPOINTS.createRun, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user.id,
-        },
-        body: JSON.stringify({
-          coordinates,
-          distance: Math.round(distance),
-          duration,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || 'Saqlashda xatolik');
-      }
-
-      const updatedUser = {
-        ...user,
-        total_distance: user.total_distance + distance,
-      };
-      await updateUser(updatedUser);
-
-      Alert.alert('Saqlandi!', `Ajoyib! Siz ${(distance / 1000).toFixed(2)} km yugurdingiz`);
-      resetRun();
-    } catch (error: any) {
-      Alert.alert('Xato', error.message || 'Saqlashda xatolik');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const saveRunWithTerritory = async () => {
     if (!user) return;
     
@@ -395,9 +356,7 @@ export default function RunScreen() {
       }
 
       // Create territory from the run coordinates (create polygon)
-      // Close the polygon by connecting end to start
-      const polygon = [...coordinates];
-      if (polygon.length >= 3) {
+      if (coordinates.length >= 3) {
         const territoryResponse = await fetch(API_ENDPOINTS.createTerritory, {
           method: 'POST',
           headers: {
@@ -405,14 +364,22 @@ export default function RunScreen() {
             'X-User-Id': user.id,
           },
           body: JSON.stringify({
-            polygon: polygon,
+            polygon: coordinates,
             run_id: runData.id,
           }),
         });
 
-        if (!territoryResponse.ok) {
-          console.log('Territory creation failed, but run was saved');
+        if (territoryResponse.ok) {
+          const territoryData = await territoryResponse.json();
+          Alert.alert(
+            'Hudud yaratildi!',
+            `Ajoyib! Siz ${(distance / 1000).toFixed(2)} km yugurdingiz\nTezlik: ${calculateSpeed()} km/soat\nHudud maydoni: ${(territoryData.area / 1000000).toFixed(4)} km²`
+          );
+        } else {
+          Alert.alert('Saqlandi!', `${(distance / 1000).toFixed(2)} km yugurish saqlandi`);
         }
+      } else {
+        Alert.alert('Saqlandi!', `${(distance / 1000).toFixed(2)} km yugurish saqlandi`);
       }
 
       const updatedUser = {
@@ -421,10 +388,6 @@ export default function RunScreen() {
       };
       await updateUser(updatedUser);
 
-      Alert.alert(
-        'Hudud yaratildi!',
-        `Ajoyib! Siz ${(distance / 1000).toFixed(2)} km yugurdingiz va hudud yaratdingiz!`
-      );
       resetRun();
     } catch (error: any) {
       Alert.alert('Xato', error.message || 'Saqlashda xatolik');
