@@ -294,15 +294,40 @@ export default function RunScreen() {
       return;
     }
 
+    // Calculate territory area
+    const areaM2 = calculatePolygonArea(coordinates);
+    const areaKm2 = (areaM2 / 1000000).toFixed(4);
+
     Alert.alert(
       'Yugurish saqlash',
-      `Siz ${(distance / 1000).toFixed(2)} km yugurdingiz (${formatTime(duration)}). ${invasionCount > 0 ? `${invasionCount} ta hudud egallandi!` : ''} Saqlaysizmi?`,
+      `Siz ${(distance / 1000).toFixed(2)} km yugurdingiz\nTezlik: ${calculateSpeed()} km/soat\nHudud: ${areaKm2} km²\n${invasionCount > 0 ? `${invasionCount} ta hudud egallandi!` : ''}\n\nSaqlash va hudud yaratilsinmi?`,
       [
         { text: 'Bekor qilish', style: 'destructive', onPress: resetRun },
-        { text: 'Saqlash', onPress: saveRun },
-        { text: 'Hudud yaratish', onPress: saveRunWithTerritory },
+        { text: 'Saqlash', onPress: saveRunWithTerritory },
       ]
     );
+  };
+
+  // Calculate polygon area
+  const calculatePolygonArea = (coords: Coordinate[]): number => {
+    if (coords.length < 3) return 0;
+    
+    const latToM = 111320;
+    const lngToM = 111320;
+    
+    let area = 0;
+    const n = coords.length;
+    
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const xi = coords[i].lng * lngToM;
+      const yi = coords[i].lat * latToM;
+      const xj = coords[j].lng * lngToM;
+      const yj = coords[j].lat * latToM;
+      area += (xi * yj) - (xj * yi);
+    }
+    
+    return Math.abs(area / 2);
   };
 
   const saveRun = async () => {
