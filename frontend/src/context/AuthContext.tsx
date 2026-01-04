@@ -1,5 +1,17 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
+import { Platform, Alert } from 'react-native';
+import { useRouter } from 'expo-router';
+
+// Configure notifications to show when app is in foreground
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 interface User {
   id: string;
@@ -7,6 +19,8 @@ interface User {
   name: string;
   avatar?: string;
   total_distance: number;
+  color?: string;
+  push_token?: string;
   created_at: string;
 }
 
@@ -26,10 +40,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasCompletedConsent, setHasCompletedConsentState] = useState(false);
+  const notificationListener = useRef<any>();
+  const responseListener = useRef<any>();
 
   useEffect(() => {
     loadUserData();
+    setupNotificationListeners();
+    
+    return () => {
+      if (notificationListener.current) {
+        Notifications.removeNotificationSubscription(notificationListener.current);
+      }
+      if (responseListener.current) {
+        Notifications.removeNotificationSubscription(responseListener.current);
+      }
+    };
   }, []);
+
+  const setupNotificationListeners = () => {
+    // Listen for incoming notifications while app is foregrounded
+    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+      const data = notification.request.content.data;
+      
+      // Handle territory invasion notification
+      if (data?.type === 'territory_invasion') {
+        // Show alert with invasion details
+        Alert.alert(
+          notification.request.content.title || 'Xabar',
+          notification.request.content.body || '',
+          [
+            { text: 'OK' },
+            { 
+              text: 'Xaritada ko\'rish', 
+              onPress: () => {
+                // Navigate to map - handled by response listener
+              }
+            }
+          ]
+        );
+      }
+    });
+
+    // Listen for notification interactions (user tapped on notification)
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+      const data = response.notification.request.content.data;
+      
+      if (data?.type === 'territory_invasion') {
+        // User tapped the notification - could navigate to map
+        console.log('User tapped invasion notification:', data);
+      }
+    });
+  };
 
   const loadUserData = async () => {
     try {
