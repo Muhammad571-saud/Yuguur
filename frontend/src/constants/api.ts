@@ -17,10 +17,21 @@ export const API_ENDPOINTS = {
   getAllRuns: `${API_BASE_URL}/runs`,
   getUserRuns: (userId: string) => `${API_BASE_URL}/runs/user/${userId}`,
   
+  // Territories
+  createTerritory: `${API_BASE_URL}/territories`,
+  getAllTerritories: `${API_BASE_URL}/territories`,
+  getUserTerritories: (userId: string) => `${API_BASE_URL}/territories/user/${userId}`,
+  checkInvasion: `${API_BASE_URL}/territories/check-invasion`,
+  
+  // Invasion History
+  invasionHistory: `${API_BASE_URL}/invasion-history`,
+  territoryInvasionHistory: (territoryId: string) => `${API_BASE_URL}/invasion-history/territory/${territoryId}`,
+  
   // Leaderboard
   leaderboard: `${API_BASE_URL}/leaderboard`,
   
   // Admin
   verifyAdmin: `${API_BASE_URL}/admin/verify`,
   adminUsers: `${API_BASE_URL}/admin/users`,
+  adminInvasionHistory: `${API_BASE_URL}/admin/invasion-history`,
 };
