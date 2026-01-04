@@ -68,16 +68,21 @@ export default function ConsentScreen() {
 
   const handleContinue = async () => {
     if (!permissionsGranted) {
-      Alert.alert('Permissions Required', 'Please grant permissions to continue.');
+      Alert.alert('Ruxsat kerak', 'Davom etish uchun GPS ruxsatini bering.');
       return;
     }
     if (!isChecked) {
-      Alert.alert('Agreement Required', 'Please accept the terms to continue.');
+      Alert.alert('Shartlar kerak', 'Davom etish uchun shartlarni qabul qiling.');
       return;
     }
 
-    await setHasCompletedConsent(true);
-    router.replace('/auth/login');
+    try {
+      await setHasCompletedConsent(true);
+      router.replace('/auth/login');
+    } catch (error) {
+      console.error('Continue error:', error);
+      router.replace('/auth/login');
+    }
   };
 
   return (
