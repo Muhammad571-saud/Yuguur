@@ -10,7 +10,6 @@ from typing import List, Optional
 import uuid
 from datetime import datetime
 import hashlib
-import base64
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -33,6 +32,24 @@ ADMIN_PASSWORD = "admin0011na_14g"
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
+# Point in polygon algorithm
+def point_in_polygon(point: dict, polygon: List[dict]) -> bool:
+    """Ray casting algorithm to check if point is inside polygon"""
+    x, y = point['lat'], point['lng']
+    n = len(polygon)
+    inside = False
+    
+    j = n - 1
+    for i in range(n):
+        xi, yi = polygon[i]['lat'], polygon[i]['lng']
+        xj, yj = polygon[j]['lat'], polygon[j]['lng']
+        
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
+            inside = not inside
+        j = i
+    
+    return inside
+
 # Models
 class UserCreate(BaseModel):
     phone: str
@@ -43,7 +60,7 @@ class UserCreate(BaseModel):
     def validate_phone(cls, v):
         if not v.startswith('+998'):
             raise ValueError('Phone number must start with +998')
-        if len(v) != 13:  # +998 + 9 digits
+        if len(v) != 13:
             raise ValueError('Phone number must be exactly 13 characters (+998 + 9 digits)')
         if not v[1:].isdigit():
             raise ValueError('Phone number must contain only digits after +')
@@ -55,7 +72,8 @@ class UserLogin(BaseModel):
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
-    avatar: Optional[str] = None  # Base64 encoded image
+    avatar: Optional[str] = None
+    push_token: Optional[str] = None
 
 class PasswordChange(BaseModel):
     old_password: str
@@ -67,12 +85,14 @@ class UserResponse(BaseModel):
     name: str
     avatar: Optional[str] = None
     total_distance: float = 0.0
+    color: Optional[str] = None
+    push_token: Optional[str] = None
     created_at: datetime
 
 class RunCreate(BaseModel):
-    coordinates: List[dict]  # [{lat, lng}]
-    distance: float  # in meters
-    duration: int  # in seconds
+    coordinates: List[dict]
+    distance: float
+    duration: int
 
 class RunResponse(BaseModel):
     id: str
@@ -85,12 +105,54 @@ class RunResponse(BaseModel):
     duration: int
     created_at: datetime
 
+class TerritoryCreate(BaseModel):
+    polygon: List[dict]  # [{lat, lng}] - closed polygon
+    run_id: Optional[str] = None
+
+class TerritoryResponse(BaseModel):
+    id: str
+    owner_id: str
+    owner_name: str
+    owner_phone: str
+    owner_avatar: Optional[str] = None
+    owner_color: str
+    polygon: List[dict]
+    area: float  # in square meters
+    created_at: datetime
+    updated_at: datetime
+
+class InvasionCheck(BaseModel):
+    lat: float
+    lng: float
+    user_id: str
+
+class InvasionResponse(BaseModel):
+    invaded: bool
+    territory_id: Optional[str] = None
+    old_owner_id: Optional[str] = None
+    old_owner_name: Optional[str] = None
+    old_owner_phone: Optional[str] = None
+    old_owner_push_token: Optional[str] = None
+    new_owner_id: Optional[str] = None
+    new_owner_name: Optional[str] = None
+
+class InvasionHistoryResponse(BaseModel):
+    id: str
+    territory_id: str
+    old_owner_id: str
+    old_owner_name: str
+    new_owner_id: str
+    new_owner_name: str
+    invasion_point: dict
+    timestamp: datetime
+
 class LeaderboardEntry(BaseModel):
     id: str
     name: str
     phone: str
     avatar: Optional[str] = None
     total_distance: float
+    territory_count: int = 0
     rank: int
 
 class AdminAuth(BaseModel):
@@ -102,8 +164,43 @@ class AdminUserResponse(BaseModel):
     name: str
     avatar: Optional[str] = None
     total_distance: float
+    territory_count: int = 0
     rank: int
     created_at: datetime
+
+# Generate unique color for user
+def generate_user_color(user_id: str) -> str:
+    colors = [
+        '#4a90d9', '#4ade80', '#f59e0b', '#ef4444', '#8b5cf6',
+        '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
+        '#14b8a6', '#a855f7', '#eab308', '#22c55e', '#3b82f6'
+    ]
+    # Use hash to get consistent color for same user
+    hash_val = int(hashlib.md5(user_id.encode()).hexdigest(), 16)
+    return colors[hash_val % len(colors)]
+
+# Calculate polygon area using Shoelace formula
+def calculate_polygon_area(polygon: List[dict]) -> float:
+    """Calculate area in square meters using Shoelace formula with lat/lng approximation"""
+    n = len(polygon)
+    if n < 3:
+        return 0.0
+    
+    # Approximate meters per degree at equator
+    lat_to_m = 111320
+    lng_to_m = 111320
+    
+    area = 0.0
+    j = n - 1
+    for i in range(n):
+        xi = polygon[i]['lng'] * lng_to_m
+        yi = polygon[i]['lat'] * lat_to_m
+        xj = polygon[j]['lng'] * lng_to_m
+        yj = polygon[j]['lat'] * lat_to_m
+        area += (xj + xi) * (yj - yi)
+        j = i
+    
+    return abs(area / 2.0)
 
 # Routes
 @api_router.get("/")
@@ -112,19 +209,20 @@ async def root():
 
 @api_router.post("/auth/register", response_model=UserResponse)
 async def register(user: UserCreate):
-    # Check if phone already exists
     existing_user = await db.users.find_one({"phone": user.phone})
     if existing_user:
         raise HTTPException(status_code=400, detail="Phone number already registered")
     
-    # Create user
+    user_id = str(uuid.uuid4())
     user_dict = {
-        "id": str(uuid.uuid4()),
+        "id": user_id,
         "phone": user.phone,
         "name": user.name,
         "password": hash_password(user.password),
         "avatar": None,
         "total_distance": 0.0,
+        "color": generate_user_color(user_id),
+        "push_token": None,
         "created_at": datetime.utcnow()
     }
     
@@ -136,6 +234,8 @@ async def register(user: UserCreate):
         name=user_dict["name"],
         avatar=user_dict["avatar"],
         total_distance=user_dict["total_distance"],
+        color=user_dict["color"],
+        push_token=user_dict["push_token"],
         created_at=user_dict["created_at"]
     )
 
@@ -155,6 +255,8 @@ async def login(credentials: UserLogin):
         name=user["name"],
         avatar=user.get("avatar"),
         total_distance=user.get("total_distance", 0.0),
+        color=user.get("color"),
+        push_token=user.get("push_token"),
         created_at=user["created_at"]
     )
 
@@ -170,6 +272,8 @@ async def get_user(user_id: str):
         name=user["name"],
         avatar=user.get("avatar"),
         total_distance=user.get("total_distance", 0.0),
+        color=user.get("color"),
+        push_token=user.get("push_token"),
         created_at=user["created_at"]
     )
 
@@ -184,15 +288,19 @@ async def update_user(user_id: str, update: UserUpdate):
         update_dict["name"] = update.name
     if update.avatar is not None:
         update_dict["avatar"] = update.avatar
+    if update.push_token is not None:
+        update_dict["push_token"] = update.push_token
     
     if update_dict:
         await db.users.update_one({"id": user_id}, {"$set": update_dict})
         
-        # Also update avatar in runs
+        # Also update in runs and territories
         if update.avatar is not None:
             await db.runs.update_many({"user_id": user_id}, {"$set": {"user_avatar": update.avatar}})
+            await db.territories.update_many({"owner_id": user_id}, {"$set": {"owner_avatar": update.avatar}})
         if update.name is not None:
             await db.runs.update_many({"user_id": user_id}, {"$set": {"user_name": update.name}})
+            await db.territories.update_many({"owner_id": user_id}, {"$set": {"owner_name": update.name}})
     
     updated_user = await db.users.find_one({"id": user_id})
     
@@ -202,6 +310,8 @@ async def update_user(user_id: str, update: UserUpdate):
         name=updated_user["name"],
         avatar=updated_user.get("avatar"),
         total_distance=updated_user.get("total_distance", 0.0),
+        color=updated_user.get("color"),
+        push_token=updated_user.get("push_token"),
         created_at=updated_user["created_at"]
     )
 
@@ -257,18 +367,131 @@ async def get_user_runs(user_id: str):
     runs = await db.runs.find({"user_id": user_id}).sort("created_at", -1).to_list(1000)
     return [RunResponse(**run) for run in runs]
 
+# Territory endpoints
+@api_router.post("/territories", response_model=TerritoryResponse)
+async def create_territory(territory: TerritoryCreate, user_id: str = Header(..., alias="X-User-Id")):
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if len(territory.polygon) < 3:
+        raise HTTPException(status_code=400, detail="Polygon must have at least 3 points")
+    
+    # Ensure polygon is closed
+    polygon = territory.polygon.copy()
+    if polygon[0] != polygon[-1]:
+        polygon.append(polygon[0])
+    
+    territory_dict = {
+        "id": str(uuid.uuid4()),
+        "owner_id": user_id,
+        "owner_name": user["name"],
+        "owner_phone": user["phone"],
+        "owner_avatar": user.get("avatar"),
+        "owner_color": user.get("color", generate_user_color(user_id)),
+        "polygon": polygon,
+        "area": calculate_polygon_area(polygon),
+        "run_id": territory.run_id,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    }
+    
+    await db.territories.insert_one(territory_dict)
+    
+    return TerritoryResponse(**territory_dict)
+
+@api_router.get("/territories", response_model=List[TerritoryResponse])
+async def get_all_territories():
+    territories = await db.territories.find().sort("created_at", -1).to_list(1000)
+    return [TerritoryResponse(**t) for t in territories]
+
+@api_router.get("/territories/user/{user_id}", response_model=List[TerritoryResponse])
+async def get_user_territories(user_id: str):
+    territories = await db.territories.find({"owner_id": user_id}).sort("created_at", -1).to_list(1000)
+    return [TerritoryResponse(**t) for t in territories]
+
+@api_router.post("/territories/check-invasion", response_model=InvasionResponse)
+async def check_invasion(data: InvasionCheck):
+    """Check if a GPS point invades any territory not owned by the user"""
+    user = await db.users.find_one({"id": data.user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    point = {"lat": data.lat, "lng": data.lng}
+    
+    # Find all territories not owned by this user
+    territories = await db.territories.find({"owner_id": {"$ne": data.user_id}}).to_list(1000)
+    
+    for territory in territories:
+        if point_in_polygon(point, territory["polygon"]):
+            # Found invasion!
+            old_owner = await db.users.find_one({"id": territory["owner_id"]})
+            
+            # Record invasion history
+            invasion_history = {
+                "id": str(uuid.uuid4()),
+                "territory_id": territory["id"],
+                "old_owner_id": territory["owner_id"],
+                "old_owner_name": territory["owner_name"],
+                "new_owner_id": data.user_id,
+                "new_owner_name": user["name"],
+                "invasion_point": point,
+                "timestamp": datetime.utcnow()
+            }
+            await db.invasion_history.insert_one(invasion_history)
+            
+            # Transfer territory ownership
+            await db.territories.update_one(
+                {"id": territory["id"]},
+                {"$set": {
+                    "owner_id": data.user_id,
+                    "owner_name": user["name"],
+                    "owner_phone": user["phone"],
+                    "owner_avatar": user.get("avatar"),
+                    "owner_color": user.get("color", generate_user_color(data.user_id)),
+                    "updated_at": datetime.utcnow()
+                }}
+            )
+            
+            return InvasionResponse(
+                invaded=True,
+                territory_id=territory["id"],
+                old_owner_id=territory["owner_id"],
+                old_owner_name=territory["owner_name"],
+                old_owner_phone=territory.get("owner_phone"),
+                old_owner_push_token=old_owner.get("push_token") if old_owner else None,
+                new_owner_id=data.user_id,
+                new_owner_name=user["name"]
+            )
+    
+    return InvasionResponse(invaded=False)
+
+@api_router.get("/invasion-history", response_model=List[InvasionHistoryResponse])
+async def get_invasion_history():
+    history = await db.invasion_history.find().sort("timestamp", -1).to_list(1000)
+    return [InvasionHistoryResponse(**h) for h in history]
+
+@api_router.get("/invasion-history/territory/{territory_id}", response_model=List[InvasionHistoryResponse])
+async def get_territory_invasion_history(territory_id: str):
+    history = await db.invasion_history.find({"territory_id": territory_id}).sort("timestamp", -1).to_list(100)
+    return [InvasionHistoryResponse(**h) for h in history]
+
 @api_router.get("/leaderboard", response_model=List[LeaderboardEntry])
 async def get_leaderboard():
     users = await db.users.find().sort("total_distance", -1).to_list(1000)
     
     leaderboard = []
     for i, user in enumerate(users):
+        # Count territories owned by user
+        territory_count = await db.territories.count_documents({"owner_id": user["id"]})
+        
         leaderboard.append(LeaderboardEntry(
             id=user["id"],
             name=user["name"],
             phone=user["phone"],
             avatar=user.get("avatar"),
             total_distance=user.get("total_distance", 0.0),
+            territory_count=territory_count,
             rank=i + 1
         ))
     
@@ -289,17 +512,28 @@ async def get_all_users(admin_password: str = Header(..., alias="X-Admin-Passwor
     
     result = []
     for i, user in enumerate(users):
+        territory_count = await db.territories.count_documents({"owner_id": user["id"]})
+        
         result.append(AdminUserResponse(
             id=user["id"],
             phone=user["phone"],
             name=user["name"],
             avatar=user.get("avatar"),
             total_distance=user.get("total_distance", 0.0),
+            territory_count=territory_count,
             rank=i + 1,
             created_at=user["created_at"]
         ))
     
     return result
+
+@api_router.get("/admin/invasion-history", response_model=List[InvasionHistoryResponse])
+async def admin_get_invasion_history(admin_password: str = Header(..., alias="X-Admin-Password")):
+    if admin_password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Invalid admin password")
+    
+    history = await db.invasion_history.find().sort("timestamp", -1).to_list(1000)
+    return [InvasionHistoryResponse(**h) for h in history]
 
 # Include the router in the main app
 app.include_router(api_router)
