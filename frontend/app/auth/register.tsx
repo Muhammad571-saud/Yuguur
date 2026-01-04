@@ -12,8 +12,8 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../src/context/AuthContext';
-import { API_ENDPOINTS } from '../../src/constants/api';
+import { useAuth } from '@/src/context/AuthContext';
+import { API_ENDPOINTS } from '@/src/constants/api';
 
 export default function RegisterScreen() {
   const router = useRouter();
