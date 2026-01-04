@@ -10,6 +10,7 @@ from typing import List, Optional
 import uuid
 from datetime import datetime
 import hashlib
+import httpx
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -28,9 +29,41 @@ api_router = APIRouter(prefix="/api")
 # Admin password
 ADMIN_PASSWORD = "admin0011na_14g"
 
+# Expo Push API URL
+EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+
 # Helper function to hash passwords
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+# Send push notification via Expo
+async def send_push_notification(push_token: str, title: str, body: str, data: dict = None):
+    """Send push notification using Expo Push API"""
+    if not push_token or not push_token.startswith('ExponentPushToken'):
+        return False
+    
+    try:
+        message = {
+            "to": push_token,
+            "sound": "default",
+            "title": title,
+            "body": body,
+            "data": data or {},
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                EXPO_PUSH_URL,
+                json=message,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                }
+            )
+            return response.status_code == 200
+    except Exception as e:
+        logging.error(f"Push notification error: {e}")
+        return False
 
 # Point in polygon algorithm
 def point_in_polygon(point: dict, polygon: List[dict]) -> bool:
