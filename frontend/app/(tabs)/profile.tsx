@@ -15,8 +15,8 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
-import { useAuth } from '../../src/context/AuthContext';
-import { API_ENDPOINTS } from '../../src/constants/api';
+import { useAuth } from '@/src/context/AuthContext';
+import { API_ENDPOINTS } from '@/src/constants/api';
 
 export default function ProfileScreen() {
   const router = useRouter();
