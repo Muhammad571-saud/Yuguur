@@ -152,15 +152,24 @@ export default function MapScreen() {
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           html, body { width: 100%; height: 100%; }
-          #map { width: 100%; height: 100%; background: #1a1a2e; }
+          #map { width: 100%; height: 100%; background: #fff; }
           .leaflet-popup-content-wrapper {
-            background: #16213e;
-            color: #fff;
+            background: #fff;
+            color: #333;
             border-radius: 10px;
+            box-shadow: 0 3px 14px rgba(0,0,0,0.2);
           }
-          .leaflet-popup-tip { background: #16213e; }
-          .leaflet-popup-content { color: #ccd6f6; }
+          .leaflet-popup-tip { background: #fff; }
+          .leaflet-popup-content { color: #333; }
           .leaflet-popup-content b { color: #4a90d9; }
+          .territory-label {
+            background: rgba(255,255,255,0.9);
+            border: none;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 11px;
+            font-weight: bold;
+          }
         </style>
       </head>
       <body>
@@ -168,8 +177,9 @@ export default function MapScreen() {
         <script>
           var map = L.map('map').setView([${center.lat}, ${center.lng}], 14);
           
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+          // White/Light OpenStreetMap theme
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap',
             maxZoom: 19
           }).addTo(map);
           
