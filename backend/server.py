@@ -486,6 +486,21 @@ async def check_invasion(data: InvasionCheck):
                 }}
             )
             
+            # Send push notification to old owner
+            if old_owner and old_owner.get("push_token"):
+                await send_push_notification(
+                    push_token=old_owner["push_token"],
+                    title="⚠️ Hududingiz bosib olindi!",
+                    body=f"{user['name']} sizning hududingizga kirdi va uni egalladi.",
+                    data={
+                        "type": "territory_invasion",
+                        "territory_id": territory["id"],
+                        "invader_id": data.user_id,
+                        "invader_name": user["name"]
+                    }
+                )
+                logging.info(f"Push notification sent to {old_owner['name']} about territory invasion")
+            
             return InvasionResponse(
                 invaded=True,
                 territory_id=territory["id"],
@@ -496,6 +511,8 @@ async def check_invasion(data: InvasionCheck):
                 new_owner_id=data.user_id,
                 new_owner_name=user["name"]
             )
+    
+    return InvasionResponse(invaded=False)
     
     return InvasionResponse(invaded=False)
 
