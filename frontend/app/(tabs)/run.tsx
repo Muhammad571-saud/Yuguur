@@ -7,8 +7,10 @@ import {
   Alert,
   Platform,
   Vibration,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
@@ -38,6 +40,8 @@ interface InvasionResult {
   new_owner_name?: string;
 }
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
 export default function RunScreen() {
   const { user, updateUser } = useAuth();
   const [isRunning, setIsRunning] = useState(false);
@@ -47,11 +51,12 @@ export default function RunScreen() {
   const [coordinates, setCoordinates] = useState<Coordinate[]>([]);
   const [saving, setSaving] = useState(false);
   const [invasionCount, setInvasionCount] = useState(0);
+  const [mapKey, setMapKey] = useState(0);
   
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const lastLocation = useRef<Coordinate | null>(null);
-  const invasionCheckInterval = useRef<NodeJS.Timeout | null>(null);
+  const webViewRef = useRef<WebView>(null);
 
   useEffect(() => {
     registerForPushNotifications();
@@ -63,11 +68,22 @@ export default function RunScreen() {
       if (timerRef.current) {
         clearInterval(timerRef.current);
       }
-      if (invasionCheckInterval.current) {
-        clearInterval(invasionCheckInterval.current);
-      }
     };
   }, []);
+
+  // Update map when coordinates change
+  useEffect(() => {
+    if (coordinates.length > 0 && webViewRef.current) {
+      const lastCoord = coordinates[coordinates.length - 1];
+      const script = `
+        if (typeof updateRoute !== 'undefined') {
+          updateRoute(${JSON.stringify(coordinates)}, ${lastCoord.lat}, ${lastCoord.lng});
+        }
+        true;
+      `;
+      webViewRef.current.injectJavaScript(script);
+    }
+  }, [coordinates]);
 
   const registerForPushNotifications = async () => {
     if (Platform.OS === 'web') return;
@@ -82,13 +98,11 @@ export default function RunScreen() {
       }
       
       if (finalStatus !== 'granted') {
-        console.log('Push notification permission not granted');
         return;
       }
       
       const token = (await Notifications.getExpoPushTokenAsync()).data;
       
-      // Save push token to user profile
       if (user && token) {
         await fetch(API_ENDPOINTS.updateUser(user.id), {
           method: 'PUT',
@@ -103,12 +117,8 @@ export default function RunScreen() {
 
   const sendLocalNotification = async (title: string, body: string) => {
     await Notifications.scheduleNotificationAsync({
-      content: {
-        title,
-        body,
-        sound: true,
-      },
-      trigger: null, // Immediate
+      content: { title, body, sound: true },
+      trigger: null,
     });
   };
 
@@ -119,8 +129,7 @@ export default function RunScreen() {
     const Δφ = ((coord2.lat - coord1.lat) * Math.PI) / 180;
     const Δλ = ((coord2.lng - coord1.lng) * Math.PI) / 180;
 
-    const a =
-      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
       Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
@@ -134,11 +143,7 @@ export default function RunScreen() {
       const response = await fetch(API_ENDPOINTS.checkInvasion, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lat: coord.lat,
-          lng: coord.lng,
-          user_id: user.id,
-        }),
+        body: JSON.stringify({ lat: coord.lat, lng: coord.lng, user_id: user.id }),
       });
       
       if (response.ok) {
@@ -147,18 +152,15 @@ export default function RunScreen() {
         if (result.invaded) {
           setInvasionCount(prev => prev + 1);
           
-          // Vibrate to notify
           if (Platform.OS !== 'web') {
             Vibration.vibrate([0, 500, 200, 500]);
           }
           
-          // Show local notification for invader
           await sendLocalNotification(
             '🏆 Hudud egallandi!',
             `Siz ${result.old_owner_name} ning hududini egalladingiz!`
           );
           
-          // Alert for immediate feedback
           Alert.alert(
             '🏆 Hudud egallandi!',
             `Siz ${result.old_owner_name} ning hududini egalladingiz!`,
@@ -195,18 +197,17 @@ export default function RunScreen() {
       setDuration(0);
       setDistance(0);
       setInvasionCount(0);
+      setMapKey(prev => prev + 1);
 
-      // Start timer
       timerRef.current = setInterval(() => {
         setDuration((prev) => prev + 1);
       }, 1000);
 
-      // Start location tracking
       locationSubscription.current = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
-          timeInterval: 2000,
-          distanceInterval: 5,
+          timeInterval: 1000,
+          distanceInterval: 3,
         },
         async (newLocation) => {
           const newCoord: Coordinate = {
@@ -216,12 +217,11 @@ export default function RunScreen() {
 
           if (lastLocation.current) {
             const dist = calculateDistance(lastLocation.current, newCoord);
-            if (dist > 3) {
+            if (dist > 2) {
               setCoordinates((prev) => [...prev, newCoord]);
               setDistance((prev) => prev + dist);
               lastLocation.current = newCoord;
               
-              // Check for invasion on each significant move
               await checkForInvasion(newCoord);
             }
           }
@@ -255,8 +255,8 @@ export default function RunScreen() {
     locationSubscription.current = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.High,
-        timeInterval: 2000,
-        distanceInterval: 5,
+        timeInterval: 1000,
+        distanceInterval: 3,
       },
       async (newLocation) => {
         const newCoord: Coordinate = {
@@ -266,7 +266,7 @@ export default function RunScreen() {
 
         if (lastLocation.current) {
           const dist = calculateDistance(lastLocation.current, newCoord);
-          if (dist > 3) {
+          if (dist > 2) {
             setCoordinates((prev) => [...prev, newCoord]);
             setDistance((prev) => prev + dist);
             lastLocation.current = newCoord;
@@ -294,7 +294,6 @@ export default function RunScreen() {
       return;
     }
 
-    // Calculate territory area
     const areaM2 = calculatePolygonArea(coordinates);
     const areaKm2 = (areaM2 / 1000000).toFixed(4);
 
@@ -308,7 +307,6 @@ export default function RunScreen() {
     );
   };
 
-  // Calculate polygon area
   const calculatePolygonArea = (coords: Coordinate[]): number => {
     if (coords.length < 3) return 0;
     
@@ -335,7 +333,6 @@ export default function RunScreen() {
     
     setSaving(true);
     try {
-      // First save the run
       const runResponse = await fetch(API_ENDPOINTS.createRun, {
         method: 'POST',
         headers: {
@@ -355,7 +352,6 @@ export default function RunScreen() {
         throw new Error(runData.detail || 'Saqlashda xatolik');
       }
 
-      // Create territory from the run coordinates (create polygon)
       if (coordinates.length >= 3) {
         const territoryResponse = await fetch(API_ENDPOINTS.createTerritory, {
           method: 'POST',
@@ -417,14 +413,6 @@ export default function RunScreen() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const formatPace = (): string => {
-    if (distance < 100) return '--:--';
-    const paceSeconds = (duration / (distance / 1000));
-    const mins = Math.floor(paceSeconds / 60);
-    const secs = Math.floor(paceSeconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
   const calculateSpeed = (): string => {
     if (duration < 10 || distance < 10) return '0.0';
     const hours = duration / 3600;
@@ -433,10 +421,154 @@ export default function RunScreen() {
     return speed.toFixed(1);
   };
 
+  const generateMapHTML = () => {
+    const center = coordinates.length > 0 
+      ? coordinates[coordinates.length - 1] 
+      : { lat: 41.2995, lng: 69.2401 };
+    
+    const coordsJSON = JSON.stringify(coordinates);
+    
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <style>
+          * { margin: 0; padding: 0; }
+          html, body, #map { width: 100%; height: 100%; }
+        </style>
+      </head>
+      <body>
+        <div id="map"></div>
+        <script>
+          var map = L.map('map', { zoomControl: false }).setView([${center.lat}, ${center.lng}], 17);
+          
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19
+          }).addTo(map);
+          
+          var routeLine = null;
+          var currentMarker = null;
+          var startMarker = null;
+          
+          var coords = ${coordsJSON};
+          
+          if (coords.length > 0) {
+            // Start marker (green)
+            startMarker = L.circleMarker([coords[0].lat, coords[0].lng], {
+              radius: 10,
+              fillColor: '#22c55e',
+              color: '#fff',
+              weight: 3,
+              fillOpacity: 1
+            }).addTo(map);
+            
+            // Route line (blue)
+            var latLngs = coords.map(c => [c.lat, c.lng]);
+            routeLine = L.polyline(latLngs, {
+              color: '#4a90d9',
+              weight: 5,
+              opacity: 0.9
+            }).addTo(map);
+            
+            // Current position marker (red pulse)
+            var last = coords[coords.length - 1];
+            currentMarker = L.circleMarker([last.lat, last.lng], {
+              radius: 12,
+              fillColor: '#ef4444',
+              color: '#fff',
+              weight: 3,
+              fillOpacity: 1
+            }).addTo(map);
+            
+            map.setView([last.lat, last.lng], 17);
+          }
+          
+          // Function to update route from React Native
+          function updateRoute(newCoords, lat, lng) {
+            if (!startMarker && newCoords.length > 0) {
+              startMarker = L.circleMarker([newCoords[0].lat, newCoords[0].lng], {
+                radius: 10,
+                fillColor: '#22c55e',
+                color: '#fff',
+                weight: 3,
+                fillOpacity: 1
+              }).addTo(map);
+            }
+            
+            var latLngs = newCoords.map(c => [c.lat, c.lng]);
+            
+            if (routeLine) {
+              routeLine.setLatLngs(latLngs);
+            } else {
+              routeLine = L.polyline(latLngs, {
+                color: '#4a90d9',
+                weight: 5,
+                opacity: 0.9
+              }).addTo(map);
+            }
+            
+            if (currentMarker) {
+              currentMarker.setLatLng([lat, lng]);
+            } else {
+              currentMarker = L.circleMarker([lat, lng], {
+                radius: 12,
+                fillColor: '#ef4444',
+                color: '#fff',
+                weight: 3,
+                fillOpacity: 1
+              }).addTo(map);
+            }
+            
+            map.setView([lat, lng], 17);
+          }
+        </script>
+      </body>
+      </html>
+    `;
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <Text style={styles.screenTitle}>Yugurish</Text>
+
+        {/* Mini Map - shows during running */}
+        {(isRunning || coordinates.length > 0) && Platform.OS !== 'web' && (
+          <View style={styles.mapContainer}>
+            <WebView
+              ref={webViewRef}
+              key={mapKey}
+              source={{ html: generateMapHTML() }}
+              style={styles.miniMap}
+              scrollEnabled={false}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+            />
+            <View style={styles.mapOverlay}>
+              <View style={styles.mapLegend}>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: '#22c55e' }]} />
+                  <Text style={styles.legendText}>Boshlash</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: '#ef4444' }]} />
+                  <Text style={styles.legendText}>Hozirgi joy</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Web fallback for map */}
+        {(isRunning || coordinates.length > 0) && Platform.OS === 'web' && (
+          <View style={styles.webMapFallback}>
+            <Ionicons name="map" size={30} color="#4a90d9" />
+            <Text style={styles.webMapText}>{coordinates.length} nuqta yozildi</Text>
+          </View>
+        )}
 
         <View style={styles.statsContainer}>
           <View style={styles.mainStat}>
@@ -448,7 +580,7 @@ export default function RunScreen() {
 
           <View style={styles.secondaryStats}>
             <View style={styles.statItem}>
-              <Ionicons name="time" size={24} color="#4a90d9" />
+              <Ionicons name="time" size={22} color="#4a90d9" />
               <Text style={styles.statValue}>{formatTime(duration)}</Text>
               <Text style={styles.statLabel}>Vaqt</Text>
             </View>
@@ -456,7 +588,7 @@ export default function RunScreen() {
             <View style={styles.statDivider} />
 
             <View style={styles.statItem}>
-              <Ionicons name="speedometer" size={24} color="#4ade80" />
+              <Ionicons name="speedometer" size={22} color="#4ade80" />
               <Text style={styles.statValue}>{calculateSpeed()}</Text>
               <Text style={styles.statLabel}>km/soat</Text>
             </View>
@@ -464,7 +596,7 @@ export default function RunScreen() {
             <View style={styles.statDivider} />
 
             <View style={styles.statItem}>
-              <Ionicons name="flag" size={24} color="#f59e0b" />
+              <Ionicons name="flag" size={22} color="#f59e0b" />
               <Text style={styles.statValue}>{invasionCount}</Text>
               <Text style={styles.statLabel}>Egallandi</Text>
             </View>
@@ -474,7 +606,7 @@ export default function RunScreen() {
         {isRunning && (
           <View style={styles.liveIndicator}>
             <View style={styles.liveDot} />
-            <Text style={styles.liveText}>GPS kuzatuv faol</Text>
+            <Text style={styles.liveText}>GPS kuzatuv faol • {coordinates.length} nuqta</Text>
           </View>
         )}
 
@@ -491,7 +623,7 @@ export default function RunScreen() {
                   style={[styles.controlButton, styles.resumeButton]}
                   onPress={resumeRun}
                 >
-                  <Ionicons name="play" size={30} color="#fff" />
+                  <Ionicons name="play" size={28} color="#fff" />
                   <Text style={styles.controlButtonText}>Davom</Text>
                 </TouchableOpacity>
               ) : (
@@ -499,7 +631,7 @@ export default function RunScreen() {
                   style={[styles.controlButton, styles.pauseButton]}
                   onPress={pauseRun}
                 >
-                  <Ionicons name="pause" size={30} color="#fff" />
+                  <Ionicons name="pause" size={28} color="#fff" />
                   <Text style={styles.controlButtonText}>Pauza</Text>
                 </TouchableOpacity>
               )}
@@ -509,7 +641,7 @@ export default function RunScreen() {
                 onPress={stopRun}
                 disabled={saving}
               >
-                <Ionicons name="stop" size={30} color="#fff" />
+                <Ionicons name="stop" size={28} color="#fff" />
                 <Text style={styles.controlButtonText}>
                   {saving ? 'Saqlanmoqda...' : "To'xtatish"}
                 </Text>
@@ -535,39 +667,95 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: 20,
+    padding: 15,
     alignItems: 'center',
   },
   screenTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 30,
+    marginBottom: 10,
+  },
+  mapContainer: {
+    width: '100%',
+    height: 180,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 15,
+    borderWidth: 2,
+    borderColor: '#4a90d9',
+  },
+  miniMap: {
+    flex: 1,
+  },
+  mapOverlay: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    right: 8,
+  },
+  mapLegend: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 8,
+    padding: 6,
+    justifyContent: 'center',
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 10,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 5,
+  },
+  legendText: {
+    color: '#fff',
+    fontSize: 11,
+  },
+  webMapFallback: {
+    width: '100%',
+    height: 100,
+    backgroundColor: '#16213e',
+    borderRadius: 16,
+    marginBottom: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#2d3a5c',
+  },
+  webMapText: {
+    color: '#8892b0',
+    marginTop: 8,
+    fontSize: 14,
   },
   statsContainer: {
     width: '100%',
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 15,
   },
   mainStat: {
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 15,
   },
   mainStatValue: {
-    fontSize: 80,
+    fontSize: 60,
     fontWeight: 'bold',
     color: '#4ade80',
   },
   mainStatUnit: {
-    fontSize: 24,
+    fontSize: 20,
     color: '#8892b0',
-    marginTop: -10,
+    marginTop: -5,
   },
   secondaryStats: {
     flexDirection: 'row',
     backgroundColor: '#16213e',
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 14,
+    padding: 15,
     width: '100%',
     justifyContent: 'space-around',
     borderWidth: 1,
@@ -577,15 +765,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statValue: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
-    marginTop: 8,
+    marginTop: 5,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#8892b0',
-    marginTop: 4,
+    marginTop: 2,
   },
   statDivider: {
     width: 1,
@@ -595,21 +783,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(74, 222, 128, 0.1)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
     borderRadius: 20,
-    marginBottom: 30,
+    marginBottom: 15,
   },
   liveDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#4ade80',
-    marginRight: 8,
+    marginRight: 6,
   },
   liveText: {
     color: '#4ade80',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '500',
   },
   buttonContainer: {
@@ -619,9 +807,9 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   startButton: {
-    width: 180,
-    height: 180,
-    borderRadius: 90,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
     backgroundColor: '#4a90d9',
     alignItems: 'center',
     justifyContent: 'center',
@@ -632,10 +820,10 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   startButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
-    marginTop: 8,
+    marginTop: 6,
   },
   runningButtons: {
     flexDirection: 'row',
@@ -643,12 +831,12 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   controlButton: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     alignItems: 'center',
     justifyContent: 'center',
-    marginHorizontal: 15,
+    marginHorizontal: 12,
   },
   pauseButton: {
     backgroundColor: '#f59e0b',
@@ -660,15 +848,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#ef4444',
   },
   controlButtonText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
     color: '#fff',
-    marginTop: 5,
+    marginTop: 4,
   },
   hint: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#5a6a8a',
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 10,
   },
 });
