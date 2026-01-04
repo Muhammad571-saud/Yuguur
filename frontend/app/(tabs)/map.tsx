@@ -11,7 +11,7 @@ import { useFocusEffect } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { API_ENDPOINTS } from '../../src/constants/api';
+import { API_ENDPOINTS } from '@/src/constants/api';
 
 interface Run {
   id: string;
