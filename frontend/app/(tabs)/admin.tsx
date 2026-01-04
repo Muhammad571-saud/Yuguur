@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { API_ENDPOINTS } from '../../src/constants/api';
+import { API_ENDPOINTS } from '@/src/constants/api';
 
 interface AdminUser {
   id: string;
