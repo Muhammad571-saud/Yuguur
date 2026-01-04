@@ -437,6 +437,14 @@ export default function RunScreen() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const calculateSpeed = (): string => {
+    if (duration < 10 || distance < 10) return '0.0';
+    const hours = duration / 3600;
+    const km = distance / 1000;
+    const speed = km / hours;
+    return speed.toFixed(1);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
