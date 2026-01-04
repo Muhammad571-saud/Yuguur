@@ -11,8 +11,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../src/context/AuthContext';
-import { API_ENDPOINTS } from '../../src/constants/api';
+import { useAuth } from '@/src/context/AuthContext';
+import { API_ENDPOINTS } from '@/src/constants/api';
 
 interface Run {
   id: string;
