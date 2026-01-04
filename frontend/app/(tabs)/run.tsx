@@ -468,9 +468,9 @@ export default function RunScreen() {
             <View style={styles.statDivider} />
 
             <View style={styles.statItem}>
-              <Ionicons name="speedometer" size={24} color="#4a90d9" />
-              <Text style={styles.statValue}>{formatPace()}</Text>
-              <Text style={styles.statLabel}>min/km</Text>
+              <Ionicons name="speedometer" size={24} color="#4ade80" />
+              <Text style={styles.statValue}>{calculateSpeed()}</Text>
+              <Text style={styles.statLabel}>km/soat</Text>
             </View>
 
             <View style={styles.statDivider} />
